@@ -43,7 +43,7 @@ endmacro()
 # Here are the arguments:
 # MODULE: Name of python module. The module is build with the interface file
 #       named ${MODULE}_python.i.
-# DEPENDS: Names of other python modules on which this module depends. 
+# DEPENDS: Names of other python modules on which this module depends.
 macro(OpenSimAddPythonModule)
     # Parse arguments.
     # ----------------
@@ -96,7 +96,7 @@ macro(OpenSimAddPythonModule)
 
     # Compile python wrapper files into a library.
     # --------------------------------------------
-    set(_libname _${OSIMSWIGPY_MODULE}) 
+    set(_libname _${OSIMSWIGPY_MODULE})
 
     # Used for specifying dependencies for PythonBindings.
     list(APPEND OPENSIM_PYTHON_PACKAGE_LIBRARY_TARGETS ${_libname})
@@ -107,7 +107,7 @@ macro(OpenSimAddPythonModule)
             ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
         # Turn off optimization for SWIG wrapper code. Optimization slows down
         # compiling and also requires lots of memory. Also, there's not much to
-        # gain from an optimized wrapper file. 
+        # gain from an optimized wrapper file.
         # Note that the last optimization flag is what counts for GCC. So an -O0
         # later on the command line overrides a previous -O2.
         set(_COMPILE_FLAGS "-O0 -Wno-deprecated-declarations")
@@ -130,10 +130,30 @@ macro(OpenSimAddPythonModule)
     add_library(${_libname} SHARED ${_output_cxx_file} ${_output_header_file})
 
     target_include_directories(${_libname} PRIVATE ${PYTHON_INCLUDE_PATH})
-    
-    target_link_libraries(${_libname}
-        osimTools osimExampleComponents ${PYTHON_LIBRARIES})
-    
+
+    # On macOS, the python interpreter might link to the python library
+    # statically, in which case we do not want to link dynamically to the
+    # python library. This situation occurs with Anaconda's python.
+    # In this situation, we must add a linker flag to mark all undefined
+    # symbols as having to be looked up at runtime, and we ignore
+    # PYTHON_LIBRARIES.
+    # https://github.com/opensim-org/opensim-core/issues/2771
+    # https://stackoverflow.com/questions/25421479/clang-and-undefined-symbols-when-building-a-library
+    # https://github.com/lisitsyn/shogun/commit/961f6109c2a8abab4941bcdde1a19dfe70c440f1
+    # https://github.com/shogun-toolbox/shogun/issues/4068
+    execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c
+        "import sysconfig; print(sysconfig.get_config_var('LDSHARED'))"
+        OUTPUT_VARIABLE PYTHON_LDSHARED
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if("${PYTHON_LDSHARED}" MATCHES "dynamic_lookup")
+        set_target_properties(${_libname} PROPERTIES LINK_FLAGS
+            "-undefined dynamic_lookup")
+    else()
+        target_link_libraries(${_libname} ${PYTHON_LIBRARIES})
+    endif()
+
+    target_link_libraries(${_libname} osimTools osimExampleComponents)
+
     # Set target properties for various platforms.
     # --------------------------------------------
     # Resulting library must be named with .so on Unix, .pyd on Windows.
@@ -148,14 +168,14 @@ macro(OpenSimAddPythonModule)
         # Defaults to .dylib; change to .so.
         set_target_properties(${_libname} PROPERTIES SUFFIX ".so")
     endif()
-    
+
     # RPATH: We always set a relative RPATH but only use an absolute RPATH if
     # the python package is not standalone, as the libraries are not copied
     # into the python package. If Simbody libraries are not installed in the
     # same folder as the OpenSim libraries, then we must also provide the path
     # to the Simbody libraries within OpenSim's installation.
     OpenSimAddInstallRPATHSelf(TARGET ${_libname})
-    OpenSimAddInstallRPATH(TARGET ${_libname} LOADER 
+    OpenSimAddInstallRPATH(TARGET ${_libname} LOADER
         FROM "${OPENSIM_INSTALL_PYTHONDIR}/opensim"
         TO "${CMAKE_INSTALL_LIBDIR}")
     if(NOT OPENSIM_PYTHON_STANDALONE)
@@ -184,7 +204,7 @@ macro(OpenSimAddPythonModule)
 
     # Install the library.
     # --------------------
-    # It's important that we use install(TARGETS) 
+    # It's important that we use install(TARGETS)
     # because this causes CMake to remove the build-tree RPATH from the library
     # (which is set temporarily for libraries in the build tree).
     install(TARGETS ${_libname} DESTINATION "${OPENSIM_INSTALL_PYTHONDIR}/opensim")
